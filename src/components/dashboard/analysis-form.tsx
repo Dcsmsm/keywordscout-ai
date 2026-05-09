@@ -35,6 +35,10 @@ export function AnalysisForm({ disabled }: AnalysisFormProps) {
         throw new Error(data.error ?? 'Analysis failed')
       }
 
+      if (!data.analysisId) {
+        throw new Error('Analysis completed but no ID was returned. Check console for details.')
+      }
+
       toast.success('Analysis complete!')
       router.push(ROUTES.analysis(data.analysisId))
     } catch (err) {

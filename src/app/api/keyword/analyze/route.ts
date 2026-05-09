@@ -150,6 +150,7 @@ export async function POST(request: NextRequest) {
       (adminSupabase as any).rpc('increment_usage', { p_user_id: user.id, p_month: currentMonth }),
     ])
 
+    console.log('[analyze] success', { analysisId, resultsCount: resultsToInsert.length })
     return NextResponse.json({ analysisId, resultsCount: resultsToInsert.length })
   } catch (err) {
     await (adminSupabase.from('keyword_analyses') as any)
