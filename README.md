@@ -1,36 +1,220 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# KeywordScout — Find keywords you can actually rank.
 
-## Getting Started
+AI-native SEO tool for bloggers and creators. Discover low-competition keywords with real ranking potential through SERP weakness analysis, opportunity scoring, and AI-powered content angles.
 
-First, run the development server:
+---
+
+## Features
+
+- **SERP Weakness Analysis** — detect Reddit, Quora, weak domains, and outdated content in top results
+- **Opportunity Score** — AI composite score (weakness + volume + difficulty)
+- **Content Angle Generator** — specific content strategies based on what the SERP is missing
+- **Keyword Clustering** — group keywords into topic clusters automatically
+- **Multi-provider SERP** — SerpApi, Serper.dev, DataForSEO, with auto-fallback
+- **Stripe Billing** — Free / Pro / Business plans with usage limits
+- **Admin Panel** — user management, provider switching, analytics
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js 15, TypeScript, Tailwind CSS, shadcn/ui |
+| Backend | Next.js Route Handlers, Server Actions |
+| Database | Supabase (PostgreSQL) |
+| Auth | Supabase Auth |
+| Billing | Stripe |
+| Validation | Zod |
+| Deploy | Vercel |
+
+---
+
+## Local Setup
+
+### 1. Clone and install
+
+```bash
+git clone https://github.com/YOUR_USERNAME/keywordscout-ai
+cd keywordscout-ai
+npm install
+```
+
+### 2. Configure environment
+
+```bash
+cp .env.example .env.local
+```
+
+Fill in `.env.local` with your credentials (see sections below).
+
+### 3. Run development server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Supabase Setup
 
-## Learn More
+### 1. Create project
 
-To learn more about Next.js, take a look at the following resources:
+1. Go to [supabase.com](https://supabase.com) and create a new project
+2. Note your **Project URL** and **API keys** from Project Settings → API
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 2. Run migrations
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+In the Supabase Dashboard → SQL Editor, run the migration:
 
-## Deploy on Vercel
+```sql
+-- Copy and paste the contents of:
+supabase/migrations/001_initial_schema.sql
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 3. Set environment variables
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+```
+
+### 4. Create admin user
+
+After signing up, run this SQL to grant yourself admin role:
+
+```sql
+UPDATE public.users SET role = 'admin' WHERE email = 'your@email.com';
+```
+
+---
+
+## Stripe Setup
+
+### 1. Create products
+
+In Stripe Dashboard → Products, create:
+
+| Product | Price | Billing |
+|---------|-------|---------|
+| KeywordScout Pro | $29 | Monthly |
+| KeywordScout Business | $99 | Monthly |
+
+### 2. Get Price IDs and add to `.env.local`
+
+```env
+STRIPE_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_PRO_PRICE_ID=price_...
+STRIPE_BUSINESS_PRICE_ID=price_...
+```
+
+### 3. Configure webhooks (local)
+
+```bash
+stripe listen --forward-to localhost:3000/api/stripe/webhook
+```
+
+Copy the webhook signing secret:
+
+```env
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+### 4. Production webhooks
+
+In Stripe Dashboard → Webhooks, add endpoint:
+`https://your-domain.com/api/stripe/webhook`
+
+Events: `checkout.session.completed`, `customer.subscription.created/updated/deleted`, `invoice.payment_failed`
+
+---
+
+## SERP Provider Setup
+
+Configure at least one provider. The mock provider works out of the box for testing.
+
+### SerpApi
+
+```env
+SERPAPI_API_KEY=your-key
+```
+
+### Serper.dev
+
+```env
+SERPER_API_KEY=your-key
+```
+
+### DataForSEO
+
+```env
+DATAFORSEO_LOGIN=your-login
+DATAFORSEO_PASSWORD=your-password
+```
+
+### Activating a provider
+
+Log in as admin → `/admin/providers` → click **Set Active**
+
+---
+
+## Deploy to Vercel
+
+```bash
+# Push to GitHub first
+git add .
+git commit -m "Initial commit"
+git push origin main
+```
+
+1. Go to [vercel.com](https://vercel.com) → New Project → Import `keywordscout-ai`
+2. Add all environment variables from `.env.example`
+3. Deploy
+
+---
+
+## Architecture Overview
+
+```
+src/
+├── app/
+│   ├── (auth)/              # Login, signup pages
+│   ├── (dashboard)/         # User dashboard, analyses, billing, settings
+│   ├── (admin)/             # Admin panel (role-protected)
+│   ├── api/
+│   │   ├── keyword/analyze/ # Core analysis endpoint
+│   │   ├── providers/test/  # Provider testing
+│   │   ├── admin/providers/ # Provider management
+│   │   └── stripe/          # Checkout, webhook, portal
+│   └── page.tsx             # Landing page
+├── components/
+│   ├── landing/             # Hero, Features, Pricing, FAQ, Footer
+│   ├── dashboard/           # Dashboard components
+│   └── admin/               # Admin components
+├── lib/
+│   ├── supabase/            # client, server, admin clients
+│   ├── stripe/              # Stripe client + plan config
+│   ├── providers/           # SerpApi, Serper, DataForSEO, Mock + factory
+│   └── ai/                  # Scoring, ideation, clustering
+├── types/                   # Database, providers, analysis types
+└── middleware.ts             # Auth + admin route protection
+supabase/
+└── migrations/
+    └── 001_initial_schema.sql
+```
+
+### Scoring Algorithm
+
+1. **SERP Weakness Score** (0–100): Reddit (+20), Quora (+15), forums (+10), weak domains (+15), outdated results (+20), video (+5)
+2. **Opportunity Score** (0–100): `weakness × 0.5 + volumeScore - difficultyPenalty + 10`
+3. **Difficulty Estimate**: strong domains (+15 each), forums (−10), weak domains (−8)
+
+---
+
+## License
+
+MIT
