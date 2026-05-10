@@ -38,12 +38,27 @@ export async function getActiveProvider(): Promise<SearchProvider> {
       .limit(1)
       .single()
 
-    if (data) {
+    // Only use DB config if it's a real provider (not mock), or if no env vars are available
+    if (data && data.provider_key !== 'mock') {
       activeProvider = createProvider(data.provider_key as ProviderKey)
       return activeProvider
     }
   } catch {
-    // Fall through to default
+    // Fall through to env var detection
+  }
+
+  // Auto-detect from env vars
+  if (process.env.SERPAPI_API_KEY) {
+    activeProvider = createProvider('serpapi')
+    return activeProvider
+  }
+  if (process.env.SERPER_API_KEY) {
+    activeProvider = createProvider('serper')
+    return activeProvider
+  }
+  if (process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD) {
+    activeProvider = createProvider('dataforseo')
+    return activeProvider
   }
 
   activeProvider = createProvider('mock')
