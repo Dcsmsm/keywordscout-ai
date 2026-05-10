@@ -23,13 +23,11 @@ export default async function AnalysisDetailPage({
 
   if (!user) redirect(ROUTES.login)
 
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from('keyword_analyses')
     .select('*, keyword_results(*)')
     .eq('id', id)
     .single()
-
-  console.log('[analysis-page]', { id, userId: user.id, hasData: !!data, error })
 
   const analysis = data as Analysis | null
 
