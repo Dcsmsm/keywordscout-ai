@@ -9,6 +9,12 @@ import {
 import { normalizeSerpResult } from './normalizer'
 import { API_TIMEOUT_MS } from '@/lib/constants'
 
+export const COUNTRY_LOCATION_CODES: Record<string, number> = {
+  us: 2840, gb: 2826, it: 2380, es: 2724,
+  fr: 2250, de: 2276, br: 2076, au: 2036,
+  ca: 2124, mx: 2484,
+}
+
 export class DataForSEOProvider implements SearchProvider {
   name = 'dataforseo'
   private login: string
@@ -78,6 +84,28 @@ export class DataForSEOProvider implements SearchProvider {
       relatedSearches: related,
       totalResults: taskResult?.se_results_count,
     }
+  }
+
+  async getKeywordVolumes(
+    keywords: string[],
+    country: string,
+    language: string,
+  ): Promise<Record<string, number>> {
+    if (!keywords.length) return {}
+    const locationCode = COUNTRY_LOCATION_CODES[country.toLowerCase()] ?? 2840
+    const data = await this.fetchApi('/keywords_data/google_ads/search_volume/live', [
+      { keywords, location_code: locationCode, language_code: language },
+    ])
+    const tasks = (data.tasks as Array<{ result?: Array<{ keyword: string; search_volume: number }> }>) ?? []
+    const map: Record<string, number> = {}
+    for (const task of tasks) {
+      for (const item of task.result ?? []) {
+        if (item.keyword && item.search_volume != null) {
+          map[item.keyword] = item.search_volume
+        }
+      }
+    }
+    return map
   }
 
   async getAutocomplete(seed: string): Promise<string[]> {

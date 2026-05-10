@@ -80,16 +80,16 @@ export class MockSearchProvider implements SearchProvider {
         volume: [2200, 3400, 800, 600][i] ?? 900,
         cpc: [1.20, 0.90, 0.60, 0.45][i] ?? 0.70,
         competition: [0.5, 0.4, 0.2, 0.25][i] ?? 0.3,
-        intent: intents[i + 1] ?? 'informational',
+        intent: (intents[i + 1] ?? 'informational') as KeywordIdea['intent'],
       })),
       ...t.post.map((p, i) => ({
         keyword: `${seed} ${p}`,
         volume: [800, 600, 900, 1500, 1800, 700][i] ?? 500,
         cpc: [0.60, 0.45, 0.70, 1.40, 0.55, 0.50][i] ?? 0.60,
         competition: [0.2, 0.25, 0.2, 0.45, 0.3, 0.2][i] ?? 0.25,
-        intent: 'informational',
+        intent: 'informational' as const,
       })),
-    ] satisfies KeywordIdea[]
+    ]
 
     return ideas.slice(0, options?.limit ?? 8)
   }

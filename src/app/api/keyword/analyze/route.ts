@@ -14,9 +14,9 @@ import {
   calculateSerpWeaknessScore,
   calculateOpportunityScore,
   estimateDifficulty,
-  detectIntent,
 } from '@/lib/ai/scoring'
-import { generateTitle, generateContentAngle, generateTopicCluster } from '@/lib/ai/ideation'
+import { generateIdeation, generateTopicCluster, expandKeywords } from '@/lib/ai/ideation'
+import { enrichWithVolume } from '@/lib/providers/volume'
 import { PLAN_LIMITS } from '@/types/analysis'
 
 export async function POST(request: NextRequest) {
@@ -112,34 +112,50 @@ export async function POST(request: NextRequest) {
       ),
     ])
 
-    const allKeywords = [keyword, ...ideas.map((k) => k.keyword).filter((k) => k !== keyword)]
+    const serpKeywords = [keyword, ...ideas.map((k) => k.keyword).filter((k) => k !== keyword)]
 
-    const resultsToInsert = await Promise.all(
-      allKeywords.slice(0, 8).map(async (kw) => {
+    // Expand with Claude-generated long-tails, then deduplicate
+    const claudeExpansions = await expandKeywords(keyword, language, serpData, serpKeywords)
+    const allKeywords = [...new Set([...serpKeywords, ...claudeExpansions])].slice(0, 20)
+
+    // Bulk volume enrichment from DataForSEO (no-op if credentials not set)
+    const volumeMap = await enrichWithVolume(allKeywords, country, language)
+
+    // Score + AI ideation for all keywords in parallel
+    const rawResults = await Promise.all(
+      allKeywords.map(async (kw) => {
         const idea = ideas.find((i) => i.keyword === kw)
         const serp = kw === keyword ? serpData : { keyword: kw, results: [] }
         const features = analyzeSerpFeatures(serp.results)
         const weakness = calculateSerpWeaknessScore(serp.results, features)
         const difficulty = estimateDifficulty(serp.results)
-        const volume = idea?.volume ?? null
+        const volume = idea?.volume ?? volumeMap[kw] ?? null
         const opportunity = calculateOpportunityScore(weakness, volume, difficulty)
-        const intent = idea?.intent ?? detectIntent(kw)
+        const ideation = await generateIdeation(kw, language, serp.results, features)
         return {
           analysis_id: analysisId,
           keyword: kw,
           estimated_volume: volume,
-          intent,
+          intent: ideation.intent,
           difficulty_estimate: difficulty,
           serp_weakness_score: weakness,
           opportunity_score: opportunity,
-          suggested_title: generateTitle(kw, intent),
-          content_angle: generateContentAngle(kw, serp.results),
+          suggested_title: ideation.suggested_title,
+          content_angle: ideation.content_angle,
           topic_cluster: generateTopicCluster(kw),
           serp_features: features as unknown as Record<string, unknown>,
           raw_serp_data: kw === keyword ? (serp as unknown as Record<string, unknown>) : null,
         }
       })
     )
+
+    // Sort: seed keyword first, then by opportunity score descending
+    const resultsToInsert = [
+      rawResults.find((r) => r.keyword === keyword)!,
+      ...rawResults
+        .filter((r) => r.keyword !== keyword)
+        .sort((a, b) => (b.opportunity_score ?? 0) - (a.opportunity_score ?? 0)),
+    ].filter(Boolean)
 
     await (adminSupabase.from('keyword_results') as any).insert(resultsToInsert)
 

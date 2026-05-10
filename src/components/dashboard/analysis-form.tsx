@@ -25,7 +25,7 @@ interface AnalysisFormProps {
 export function AnalysisForm({ disabled }: AnalysisFormProps) {
   const router = useRouter()
   const [keyword, setKeyword] = useState('')
-  const [market, setMarket] = useState(MARKETS[0])
+  const [market, setMarket] = useState<typeof MARKETS[number]>(MARKETS[0])
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
