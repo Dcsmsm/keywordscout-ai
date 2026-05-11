@@ -121,7 +121,7 @@ export class DataForSEOProvider implements SearchProvider {
   ): Promise<Record<string, number>> {
     if (!keywords.length) return {}
     const locationCode = COUNTRY_LOCATION_CODES[country.toLowerCase()] ?? 2840
-    const data = await this.fetchApi('/dataforseo_labs/google/keyword_difficulty/live', [
+    const data = await this.fetchApi('/dataforseo_labs/google/bulk_keyword_difficulty/live', [
       { keywords, location_code: locationCode, language_code: language },
     ])
     const tasks = (data.tasks as Array<{
@@ -169,7 +169,10 @@ export class DataForSEOProvider implements SearchProvider {
         body: JSON.stringify(body),
         signal: controller.signal,
       })
-      if (!response.ok) throw new Error(`DataForSEO error: ${response.status}`)
+      if (!response.ok) {
+        const body = await response.text().catch(() => '')
+        throw new Error(`DataForSEO error: ${response.status} — ${body.slice(0, 300)}`)
+      }
       return response.json()
     } finally {
       clearTimeout(timeout)
