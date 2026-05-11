@@ -145,7 +145,7 @@ export function KeywordResultsTable({ results }: { results: Result[] }) {
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
                 <Th label="Keyword"     col="keyword"            sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="min-w-[220px]" />
-                <Th label="Volume"      col="estimated_volume"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                <Th label="Vol/mo"      col="estimated_volume"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <Th label="Difficulty"  col="difficulty_estimate"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <Th label="Weakness"    col="serp_weakness_score" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 <Th label="Opportunity" col="opportunity_score"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
@@ -197,7 +197,7 @@ export function KeywordResultsTable({ results }: { results: Result[] }) {
                     {/* Volume */}
                     <td className="px-4 py-3 tabular-nums text-gray-600">
                       {r.estimated_volume != null
-                        ? r.estimated_volume.toLocaleString()
+                        ? r.estimated_volume.toLocaleString('en-US')
                         : <span className="text-gray-300">—</span>}
                     </td>
 
