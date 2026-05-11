@@ -50,11 +50,16 @@ export interface Question {
   answer?: string
 }
 
+export interface AutocompleteOptions {
+  language?: string
+  country?: string
+}
+
 export interface SearchProvider {
   name: string
   getKeywordIdeas(seed: string, options?: KeywordOptions): Promise<KeywordIdea[]>
   getSerpAnalysis(keyword: string, options?: SerpOptions): Promise<SerpAnalysis>
-  getAutocomplete?(seed: string): Promise<string[]>
+  getAutocomplete?(seed: string, options?: AutocompleteOptions): Promise<string[]>
   getRelatedSearches?(keyword: string): Promise<string[]>
   getPeopleAlsoAsk?(keyword: string): Promise<Question[]>
 }

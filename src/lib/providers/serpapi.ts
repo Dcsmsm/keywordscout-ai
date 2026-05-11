@@ -4,6 +4,7 @@ import {
   SerpAnalysis,
   KeywordOptions,
   SerpOptions,
+  AutocompleteOptions,
   Question,
 } from '@/types/providers'
 import { normalizeSerpResult } from './normalizer'
@@ -69,8 +70,14 @@ export class SerpApiProvider implements SearchProvider {
     }
   }
 
-  async getAutocomplete(seed: string): Promise<string[]> {
-    const params = new URLSearchParams({ engine: 'google_autocomplete', q: seed, api_key: this.apiKey })
+  async getAutocomplete(seed: string, options?: AutocompleteOptions): Promise<string[]> {
+    const params = new URLSearchParams({
+      engine: 'google_autocomplete',
+      q: seed,
+      gl: options?.country ?? 'us',
+      hl: options?.language ?? 'en',
+      api_key: this.apiKey,
+    })
     const data = await this.fetchUrl(`${this.baseUrl}?${params}`)
     return ((data.suggestions as Array<{ value: string }>) ?? []).map((s) => s.value)
   }

@@ -15,8 +15,9 @@ import {
   calculateOpportunityScore,
   estimateDifficulty,
 } from '@/lib/ai/scoring'
-import { generateIdeation, generateTopicCluster, expandKeywords } from '@/lib/ai/ideation'
+import { generateIdeation, generateTopicCluster } from '@/lib/ai/ideation'
 import { enrichWithVolume } from '@/lib/providers/volume'
+import { expandKeywordsPipeline } from '@/lib/keyword-expansion'
 import { PLAN_LIMITS } from '@/types/analysis'
 
 export async function POST(request: NextRequest) {
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { keyword, country, language } = parsed.data
+  const { keyword, country, language, miningDepth, maxSuggestions } = parsed.data
   const adminSupabase = createAdminClient()
   const currentMonth = new Date().toISOString().slice(0, 7)
 
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
 
   const { data: analysisData, error: analysisError } = await (adminSupabase
     .from('keyword_analyses') as any)
-    .insert({ user_id: user.id, seed_keyword: keyword, status: 'processing' })
+    .insert({ user_id: user.id, seed_keyword: keyword, status: 'processing', language, country, mining_depth: miningDepth })
     .select('id')
     .single()
 
@@ -114,9 +115,22 @@ export async function POST(request: NextRequest) {
 
     const serpKeywords = [keyword, ...ideas.map((k) => k.keyword).filter((k) => k !== keyword)]
 
-    // Expand with Claude-generated long-tails, then deduplicate
-    const claudeExpansions = await expandKeywords(keyword, language, serpData, serpKeywords)
-    const allKeywords = [...new Set([...serpKeywords, ...claudeExpansions])].slice(0, 20)
+    // Expand via autocomplete mining pipeline
+    const expansion = await expandKeywordsPipeline({
+      seed: keyword,
+      language,
+      country,
+      miningDepth,
+      maxSuggestions,
+    })
+
+    // Merge: seed + SERP ideas + mined autocomplete, deduplicated
+    const minedKeywords = expansion.keywords.map((k) => k.keyword)
+    const allKeywordsSet = [keyword, ...serpKeywords.filter((k) => k !== keyword), ...minedKeywords]
+    const allKeywords = [...new Set(allKeywordsSet)].slice(0, maxSuggestions)
+
+    // Build source map for provenance tracking
+    const sourceMap = new Map(expansion.keywords.map((k) => [k.keyword, k]))
 
     // Bulk volume enrichment from DataForSEO (no-op if credentials not set)
     const volumeMap = await enrichWithVolume(allKeywords, country, language)
@@ -132,6 +146,7 @@ export async function POST(request: NextRequest) {
         const volume = idea?.volume ?? volumeMap[kw] ?? null
         const opportunity = calculateOpportunityScore(weakness, volume, difficulty)
         const ideation = await generateIdeation(kw, language, serp.results, features)
+        const kwMeta = sourceMap.get(kw)
         return {
           analysis_id: analysisId,
           keyword: kw,
@@ -145,6 +160,9 @@ export async function POST(request: NextRequest) {
           topic_cluster: generateTopicCluster(kw),
           serp_features: features as unknown as Record<string, unknown>,
           raw_serp_data: kw === keyword ? (serp as unknown as Record<string, unknown>) : null,
+          keyword_source: kw === keyword ? 'seed' : (kwMeta?.source ?? 'autocomplete'),
+          relevance_score: kw === keyword ? 1 : (kwMeta?.relevanceScore ?? null),
+          source_modifier: kwMeta?.modifier ?? null,
         }
       })
     )

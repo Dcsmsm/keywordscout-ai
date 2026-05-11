@@ -4,6 +4,7 @@ import {
   SerpAnalysis,
   KeywordOptions,
   SerpOptions,
+  AutocompleteOptions,
 } from '@/types/providers'
 
 type LangTemplates = {
@@ -111,21 +112,21 @@ export class MockSearchProvider implements SearchProvider {
     }
   }
 
-  async getAutocomplete(seed: string, language?: string): Promise<string[]> {
+  async getAutocomplete(seed: string, options?: AutocompleteOptions): Promise<string[]> {
     await this.delay(100)
-    const t = getLangTemplates(language)
+    const t = getLangTemplates(options?.language)
     return [`${seed} ${t.post[0]}`, `${seed} ${t.post[1]}`, `${t.pre[0]} ${seed}`, `${seed} ${t.post[2]}`, `${seed} ${t.post[3]}`]
   }
 
-  async getRelatedSearches(keyword: string, language?: string): Promise<string[]> {
+  async getRelatedSearches(keyword: string, options?: AutocompleteOptions): Promise<string[]> {
     await this.delay(100)
-    const t = getLangTemplates(language)
+    const t = getLangTemplates(options?.language)
     return t.related.map((r) => r.replace(/{k}/g, keyword))
   }
 
-  async getPeopleAlsoAsk(keyword: string, language?: string) {
+  async getPeopleAlsoAsk(keyword: string, options?: AutocompleteOptions) {
     await this.delay(100)
-    const t = getLangTemplates(language)
+    const t = getLangTemplates(options?.language)
     return t.paa.slice(0, 3).map((q) => ({ question: q.replace(/{k}/g, keyword) }))
   }
 

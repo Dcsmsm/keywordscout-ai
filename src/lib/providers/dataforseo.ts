@@ -4,6 +4,7 @@ import {
   SerpAnalysis,
   KeywordOptions,
   SerpOptions,
+  AutocompleteOptions,
   Question,
 } from '@/types/providers'
 import { normalizeSerpResult } from './normalizer'
@@ -108,8 +109,11 @@ export class DataForSEOProvider implements SearchProvider {
     return map
   }
 
-  async getAutocomplete(seed: string): Promise<string[]> {
-    const data = await this.fetchApi('/serp/google/autocomplete/live/advanced', [{ keyword: seed }])
+  async getAutocomplete(seed: string, options?: AutocompleteOptions): Promise<string[]> {
+    const locationCode = COUNTRY_LOCATION_CODES[(options?.country ?? 'us').toLowerCase()] ?? 2840
+    const data = await this.fetchApi('/serp/google/autocomplete/live/advanced', [
+      { keyword: seed, location_code: locationCode, language_code: options?.language ?? 'en' },
+    ])
     const tasks = (data.tasks as Array<{ result?: Array<{ items?: Array<{ suggestion: string }> }> }>) ?? []
     return tasks[0]?.result?.[0]?.items?.map((i) => i.suggestion) ?? []
   }

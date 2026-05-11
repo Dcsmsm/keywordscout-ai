@@ -105,6 +105,9 @@ export interface Database {
           status: 'pending' | 'processing' | 'completed' | 'failed'
           provider_used: string | null
           error_message: string | null
+          language: string | null
+          country: string | null
+          mining_depth: number | null
           created_at: string
           updated_at: string
         }
@@ -115,6 +118,9 @@ export interface Database {
           status?: 'pending' | 'processing' | 'completed' | 'failed'
           provider_used?: string | null
           error_message?: string | null
+          language?: string | null
+          country?: string | null
+          mining_depth?: number | null
           created_at?: string
           updated_at?: string
         }
@@ -122,6 +128,9 @@ export interface Database {
           status?: 'pending' | 'processing' | 'completed' | 'failed'
           provider_used?: string | null
           error_message?: string | null
+          language?: string | null
+          country?: string | null
+          mining_depth?: number | null
           updated_at?: string
         }
       }
@@ -140,6 +149,9 @@ export interface Database {
           topic_cluster: string | null
           serp_features: Json | null
           raw_serp_data: Json | null
+          keyword_source: 'autocomplete' | 'autocomplete_modifier' | 'paa' | 'related' | 'claude' | 'seed' | null
+          relevance_score: number | null
+          source_modifier: string | null
           created_at: string
         }
         Insert: {
@@ -156,6 +168,9 @@ export interface Database {
           topic_cluster?: string | null
           serp_features?: Json | null
           raw_serp_data?: Json | null
+          keyword_source?: 'autocomplete' | 'autocomplete_modifier' | 'paa' | 'related' | 'claude' | 'seed' | null
+          relevance_score?: number | null
+          source_modifier?: string | null
           created_at?: string
         }
         Update: {
@@ -170,6 +185,29 @@ export interface Database {
           topic_cluster?: string | null
           serp_features?: Json | null
           raw_serp_data?: Json | null
+          keyword_source?: 'autocomplete' | 'autocomplete_modifier' | 'paa' | 'related' | 'claude' | 'seed' | null
+          relevance_score?: number | null
+          source_modifier?: string | null
+        }
+      }
+      autocomplete_cache: {
+        Row: {
+          query: string
+          language: string
+          country: string
+          suggestions: Json
+          cached_at: string
+        }
+        Insert: {
+          query: string
+          language: string
+          country: string
+          suggestions?: Json
+          cached_at?: string
+        }
+        Update: {
+          suggestions?: Json
+          cached_at?: string
         }
       }
       serp_provider_configs: {

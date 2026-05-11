@@ -1,16 +1,30 @@
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
-import { ArrowLeft, Target, TrendingUp, Lightbulb, Tag } from 'lucide-react'
+import { ArrowLeft, CheckCircle, XCircle, Loader2, Clock } from 'lucide-react'
 import Link from 'next/link'
 import { ROUTES } from '@/lib/constants'
 import { Tables } from '@/types/database'
+import { KeywordResultsTable } from '@/components/dashboard/keyword-results-table'
 
 type Analysis = Tables<'keyword_analyses'> & {
   keyword_results: Tables<'keyword_results'>[]
 }
+
+const STATUS_ICON = {
+  completed: CheckCircle,
+  failed:    XCircle,
+  processing: Loader2,
+  pending:   Clock,
+} as const
+
+const STATUS_COLOR = {
+  completed:  'border-emerald-200 text-emerald-700 bg-emerald-50',
+  failed:     'border-red-200 text-red-600',
+  processing: 'border-blue-200 text-blue-600',
+  pending:    'border-gray-200 text-gray-500',
+} as const
 
 export default async function AnalysisDetailPage({
   params,
@@ -30,145 +44,99 @@ export default async function AnalysisDetailPage({
     .single()
 
   const analysis = data as Analysis | null
-
   if (!analysis) notFound()
 
   const results = analysis.keyword_results ?? []
 
+  const StatusIcon  = STATUS_ICON[analysis.status as keyof typeof STATUS_ICON]  ?? Clock
+  const statusColor = STATUS_COLOR[analysis.status as keyof typeof STATUS_COLOR] ?? STATUS_COLOR.pending
+
+  const withVolume    = results.filter(r => r.estimated_volume != null).length
+  const avgOpportunity = results.length
+    ? Math.round(results.reduce((s, r) => s + (r.opportunity_score ?? 0), 0) / results.length)
+    : null
+  const topOpportunity = results.reduce(
+    (best, r) => (r.opportunity_score ?? 0) > (best?.opportunity_score ?? 0) ? r : best,
+    null as Tables<'keyword_results'> | null,
+  )
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex items-center gap-4">
-        <Link
-          href={ROUTES.analyses}
-          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to history
-        </Link>
-      </div>
+    <div className="max-w-6xl mx-auto space-y-6">
+      {/* Back */}
+      <Link
+        href={ROUTES.analyses}
+        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to history
+      </Link>
 
-      <div>
-        <div className="flex items-center gap-3 mb-1">
-          <h1 className="text-2xl font-bold text-gray-900">
-            &ldquo;{analysis.seed_keyword}&rdquo;
-          </h1>
-          <Badge
-            variant="outline"
-            className={
-              analysis.status === 'completed'
-                ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
-                : 'border-gray-200'
-            }
-          >
-            {analysis.status}
-          </Badge>
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3 mb-1">
+            <h1 className="text-2xl font-bold text-gray-900">
+              &ldquo;{analysis.seed_keyword}&rdquo;
+            </h1>
+            <Badge variant="outline" className={`flex items-center gap-1 ${statusColor}`}>
+              <StatusIcon className="h-3 w-3" />
+              {analysis.status}
+            </Badge>
+          </div>
+          <p className="text-sm text-gray-400">
+            {new Date(analysis.created_at).toLocaleString()} · Provider: {analysis.provider_used ?? 'mock'}
+          </p>
         </div>
-        <p className="text-sm text-gray-400">
-          {new Date(analysis.created_at).toLocaleString()} · Provider: {analysis.provider_used ?? 'mock'}
-        </p>
-      </div>
 
-      <Separator />
-
-      {results.length === 0 && (
-        <div className="text-center py-16 text-gray-400">
-          <p>No results found for this analysis.</p>
-        </div>
-      )}
-
-      <div className="space-y-4">
-        {results.map((result) => (
-          <div key={result.id} className="bg-white rounded-2xl border border-gray-100 p-6">
-            <div className="flex items-start justify-between gap-4 mb-4">
+        {/* Summary stats */}
+        {results.length > 0 && (
+          <div className="flex gap-6 shrink-0 text-center">
+            <div>
+              <p className="text-2xl font-bold text-gray-900">{results.length}</p>
+              <p className="text-xs text-gray-400">keywords</p>
+            </div>
+            {withVolume > 0 && (
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">{result.keyword}</h3>
-                <div className="flex items-center gap-2 mt-1">
-                  {result.intent && (
-                    <Badge variant="outline" className="text-xs capitalize border-gray-200">
-                      {result.intent}
-                    </Badge>
-                  )}
-                  {result.estimated_volume != null && (
-                    <span className="text-xs text-gray-400">
-                      ~{result.estimated_volume.toLocaleString()} searches/mo
-                    </span>
-                  )}
-                  {result.topic_cluster && (
-                    <span className="flex items-center gap-1 text-xs text-gray-400">
-                      <Tag className="h-3 w-3" />
-                      {result.topic_cluster}
-                    </span>
-                  )}
-                </div>
+                <p className="text-2xl font-bold text-gray-900">{withVolume}</p>
+                <p className="text-xs text-gray-400">with volume</p>
               </div>
-
-              <div className="flex gap-6 shrink-0">
-                <ScoreDisplay label="Weakness" value={result.serp_weakness_score} icon={Target} />
-                <ScoreDisplay label="Opportunity" value={result.opportunity_score} icon={TrendingUp} highlight />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-              {result.suggested_title && (
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-2">
-                    <Lightbulb className="h-3.5 w-3.5" />
-                    Suggested Title
-                  </div>
-                  <p className="text-sm text-gray-900 font-medium">{result.suggested_title}</p>
-                </div>
-              )}
-              {result.content_angle && (
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-2">
-                    <Target className="h-3.5 w-3.5" />
-                    Content Angle
-                  </div>
-                  <p className="text-sm text-gray-600 leading-relaxed">{result.content_angle}</p>
-                </div>
-              )}
-            </div>
-
-            {result.difficulty_estimate != null && (
-              <div className="mt-4">
-                <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                  <span>Keyword Difficulty</span>
-                  <span className="font-medium">{result.difficulty_estimate}/100</span>
-                </div>
-                <Progress value={result.difficulty_estimate} className="h-1.5" />
+            )}
+            {avgOpportunity != null && (
+              <div>
+                <p className={`text-2xl font-bold ${avgOpportunity >= 50 ? 'text-emerald-500' : 'text-gray-900'}`}>
+                  {avgOpportunity}
+                </p>
+                <p className="text-xs text-gray-400">avg opportunity</p>
               </div>
             )}
           </div>
-        ))}
+        )}
       </div>
-    </div>
-  )
-}
 
-function ScoreDisplay({
-  label,
-  value,
-  icon: Icon,
-  highlight,
-}: {
-  label: string
-  value: number | null
-  icon: React.ElementType
-  highlight?: boolean
-}) {
-  const score = value ?? 0
-  const color =
-    score >= 70 ? 'text-emerald-500' : score >= 40 ? 'text-yellow-500' : 'text-red-400'
+      {/* Best opportunity callout */}
+      {topOpportunity && (topOpportunity.opportunity_score ?? 0) >= 50 && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-5 py-3 flex items-center gap-3">
+          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-500 text-white text-sm font-bold shrink-0">
+            {topOpportunity.opportunity_score}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-emerald-800">Best opportunity: &ldquo;{topOpportunity.keyword}&rdquo;</p>
+            {topOpportunity.suggested_title && (
+              <p className="text-xs text-emerald-600 truncate">{topOpportunity.suggested_title}</p>
+            )}
+          </div>
+        </div>
+      )}
 
-  return (
-    <div className="text-center">
-      <div className="flex items-center gap-1 text-xs text-gray-400 mb-1">
-        <Icon className="h-3 w-3" />
-        {label}
-      </div>
-      <div className={`text-2xl font-bold ${highlight ? color : 'text-gray-700'}`}>
-        {value ?? '—'}
-      </div>
+      <Separator />
+
+      {results.length === 0 ? (
+        <div className="text-center py-16 text-gray-400">
+          <p>No results found for this analysis.</p>
+        </div>
+      ) : (
+        <KeywordResultsTable results={results} />
+      )}
     </div>
   )
 }
