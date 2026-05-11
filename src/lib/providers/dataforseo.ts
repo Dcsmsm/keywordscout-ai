@@ -124,15 +124,14 @@ export class DataForSEOProvider implements SearchProvider {
     const data = await this.fetchApi('/dataforseo_labs/google/bulk_keyword_difficulty/live', [
       { keywords, location_code: locationCode, language_code: language },
     ])
-    const tasks = (data.tasks as Array<{
-      result?: Array<{ keyword: string; keyword_difficulty: number }>
-    }>) ?? []
+    const tasks = (data.tasks as Array<Record<string, unknown>>) ?? []
+    if (tasks[0]) console.log('[dataforseo] bulk_keyword_difficulty first task sample:', JSON.stringify(tasks[0]).slice(0, 500))
     const map: Record<string, number> = {}
     for (const task of tasks) {
-      for (const item of task.result ?? []) {
-        if (item.keyword && item.keyword_difficulty != null) {
-          map[item.keyword] = item.keyword_difficulty
-        }
+      for (const item of (task.result as Array<Record<string, unknown>> | null) ?? []) {
+        const kw = item['keyword'] as string | undefined
+        const diff = (item['keyword_difficulty'] ?? item['difficulty']) as number | undefined
+        if (kw && diff != null) map[kw] = diff
       }
     }
     return map
