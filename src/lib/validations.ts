@@ -8,8 +8,8 @@ export const analyzeKeywordSchema = z.object({
     .trim(),
   country: z.string().length(2).optional().default('us'),
   language: z.string().min(2).max(5).optional().default('en'),
-  miningDepth: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional().default(2),
-  maxSuggestions: z.number().int().min(10).max(100).optional().default(50),
+  miningDepth: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional().default(3),
+  maxSuggestions: z.number().int().min(10).max(200).optional().default(100),
 })
 
 export const loginSchema = z.object({

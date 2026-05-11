@@ -6,6 +6,9 @@ import { scoreRelevance } from './semantic-relevance'
 
 const CACHE_TTL_DAYS = 7
 
+// Alphabet soup: letters most likely to yield suggestions (frequency-ordered for Italian/European)
+const ALPHABET = 'abcdefghilmnoprstuvz'.split('')
+
 async function getCachedSuggestions(
   query: string,
   language: string,
@@ -65,84 +68,81 @@ async function fetchAutocompleteSuggestions(
   }
 }
 
+function addSuggestions(
+  collected: AutocompleteKeyword[],
+  suggestions: string[],
+  source: KeywordSource,
+  seed: string,
+  lang: string,
+  modifier?: string,
+  relevanceMultiplier = 1,
+) {
+  for (const s of suggestions) {
+    collected.push({
+      keyword: s,
+      source,
+      modifier,
+      relevanceScore: scoreRelevance(s, seed) * relevanceMultiplier,
+      lang,
+    })
+  }
+}
+
 export async function mineAutocomplete(options: ExpansionOptions): Promise<AutocompleteKeyword[]> {
-  const { seed, language, country, miningDepth = 2, maxSuggestions = 50 } = options
+  const { seed, language, country, miningDepth = 2 } = options
   const config = getMiningConfig(language)
   const lang = language.slice(0, 2).toLowerCase()
   const cntry = country.slice(0, 2).toLowerCase()
 
   const collected: AutocompleteKeyword[] = []
-  const errors: string[] = []
 
-  // ── Layer 0: bare seed autocomplete ────────────────────────────────────────
-  const baseSuggestions = await fetchAutocompleteSuggestions(seed, lang, cntry)
-  for (const s of baseSuggestions) {
-    collected.push({
-      keyword: s,
-      source: 'autocomplete' as KeywordSource,
-      relevanceScore: scoreRelevance(s, seed),
-      lang,
-    })
-  }
+  // ── Layer 0: bare seed ─────────────────────────────────────────────────────
+  const base = await fetchAutocompleteSuggestions(seed, lang, cntry)
+  addSuggestions(collected, base, 'autocomplete', seed, lang)
 
-  if (miningDepth < 2) return collected.slice(0, maxSuggestions)
+  if (miningDepth < 2) return collected
 
-  // ── Layer 1: modifier-prefixed / suffixed seeds ─────────────────────────────
+  // ── Layer 1: modifier queries ──────────────────────────────────────────────
   const modifiers = [
-    ...config.questionModifiers.slice(0, 3).map((m) => ({ m, type: 'pre' as const })),
-    ...config.commercialModifiers.slice(0, 3).map((m) => ({ m, type: 'post' as const })),
+    ...config.questionModifiers.slice(0, 4).map((m) => ({ m, type: 'pre' as const })),
+    ...config.commercialModifiers.slice(0, 4).map((m) => ({ m, type: 'post' as const })),
     ...config.comparisonModifiers.slice(0, 2).map((m) => ({ m, type: 'post' as const })),
     ...config.temporalModifiers.slice(0, 2).map((m) => ({ m, type: 'post' as const })),
+    ...config.audienceModifiers.slice(0, 3).map((m) => ({ m, type: 'post' as const })),
   ]
 
-  const modifierBatches = await Promise.allSettled(
+  const modResults = await Promise.allSettled(
     modifiers.map(async ({ m, type }) => {
       const query = type === 'pre' ? `${m} ${seed}` : `${seed} ${m}`
-      const suggestions = await fetchAutocompleteSuggestions(query, lang, cntry)
-      return { query, modifier: m, suggestions }
+      return { modifier: m, suggestions: await fetchAutocompleteSuggestions(query, lang, cntry) }
     }),
   )
 
-  for (const result of modifierBatches) {
-    if (result.status === 'rejected') {
-      errors.push(String(result.reason))
-      continue
-    }
-    for (const s of result.value.suggestions) {
-      collected.push({
-        keyword: s,
-        source: 'autocomplete_modifier' as KeywordSource,
-        modifier: result.value.modifier,
-        relevanceScore: scoreRelevance(s, seed),
-        lang,
-      })
+  for (const r of modResults) {
+    if (r.status === 'fulfilled') {
+      addSuggestions(collected, r.value.suggestions, 'autocomplete_modifier', seed, lang, r.value.modifier)
     }
   }
 
-  if (miningDepth < 3) return collected.slice(0, maxSuggestions)
+  if (miningDepth < 3) return collected
 
-  // ── Layer 2: audience modifiers ─────────────────────────────────────────────
-  const audienceBatches = await Promise.allSettled(
-    config.audienceModifiers.slice(0, 3).map(async (m) => {
-      const query = `${seed} ${m}`
-      const suggestions = await fetchAutocompleteSuggestions(query, lang, cntry)
-      return { modifier: m, suggestions }
-    }),
-  )
-
-  for (const result of audienceBatches) {
-    if (result.status === 'rejected') continue
-    for (const s of result.value.suggestions) {
-      collected.push({
-        keyword: s,
-        source: 'autocomplete_modifier' as KeywordSource,
-        modifier: result.value.modifier,
-        relevanceScore: scoreRelevance(s, seed) * 0.9,
-        lang,
-      })
+  // ── Layer 2: alphabet soup — "{seed} a" … "{seed} z" ──────────────────────
+  // Batched in groups of 5 to avoid hammering the API
+  const BATCH = 5
+  for (let i = 0; i < ALPHABET.length; i += BATCH) {
+    const letters = ALPHABET.slice(i, i + BATCH)
+    const alphabetResults = await Promise.allSettled(
+      letters.map(async (letter) => {
+        const query = `${seed} ${letter}`
+        return { letter, suggestions: await fetchAutocompleteSuggestions(query, lang, cntry) }
+      }),
+    )
+    for (const r of alphabetResults) {
+      if (r.status === 'fulfilled') {
+        addSuggestions(collected, r.value.suggestions, 'autocomplete_modifier', seed, lang, r.value.letter, 0.85)
+      }
     }
   }
 
-  void errors // used for debug; suppressed in prod
-  return collected.slice(0, maxSuggestions)
+  return collected
 }

@@ -17,6 +17,8 @@ import {
 } from '@/lib/ai/scoring'
 import { generateIdeationBatch, generateTopicCluster, expandKeywords } from '@/lib/ai/ideation'
 import { enrichWithVolume } from '@/lib/providers/volume'
+import { enrichWithDifficulty } from '@/lib/providers/difficulty'
+import { enrichWithSerp } from '@/lib/providers/serp-cache'
 import { expandKeywordsPipeline } from '@/lib/keyword-expansion'
 import { PLAN_LIMITS } from '@/types/analysis'
 
@@ -130,15 +132,42 @@ export async function POST(request: NextRequest) {
     const autocompleteSourceMap = new Map(expansion.keywords.map((k) => [k.keyword, k]))
     const claudeSet = new Set(claudeKeywords)
 
-    // Build SERP data map for batch ideation
-    const serpDataMap = new Map<string, { results: typeof serpData.results; features: ReturnType<typeof analyzeSerpFeatures> }>()
-    for (const kw of allKeywords) {
-      const serp = kw === keyword ? serpData : { keyword: kw, results: [] as typeof serpData.results }
-      serpDataMap.set(kw, { results: serp.results, features: analyzeSerpFeatures(serp.results) })
-    }
-
-    // Bulk volume enrichment from DataForSEO (no-op if credentials not set)
+    // ── [A] Volume + competition — 1 bulk call, already paid ──────────────────
     const volumeMap = await enrichWithVolume(allKeywords, country, language)
+
+    // ── [B] Real SEO difficulty — 1 bulk DataForSEO Labs call, ~$0.025/100kw ─
+    const difficultyMap = await enrichWithDifficulty(allKeywords, country, language)
+
+    // ── Preliminary scores (vol + difficulty, no weakness yet) ────────────────
+    // Used to select which keywords get a real SERP call in step C
+    const preliminaryScores: Record<string, number> = {}
+    for (const kw of allKeywords) {
+      const vol = volumeMap[kw]?.volume ?? null
+      const competitionDerived = volumeMap[kw]?.competition != null
+        ? Math.round(volumeMap[kw]!.competition! * 100) : null
+      const diff = difficultyMap[kw] ?? competitionDerived
+      const volScore = vol
+        ? Math.min((Math.log10(Math.max(vol, 1)) / Math.log10(100_000)) * 50, 50) : 25
+      const diffPenalty = diff != null ? (diff / 100) * 20 : 10
+      preliminaryScores[kw] = volScore - diffPenalty
+    }
+    // Seed keyword always gets real SERP (it was already fetched)
+    preliminaryScores[keyword] = (preliminaryScores[keyword] ?? 0) + 999
+
+    // ── [C] Selective SERP for top-5 by preliminary score, ~5 × $0.05 ────────
+    const TOP_N_SERP = parseInt(process.env.SERP_ENRICHMENT_TOP_N ?? '5', 10)
+    const seedMap = new Map([[keyword, serpData]])
+    const serpCacheMap = await enrichWithSerp(
+      allKeywords, preliminaryScores, country, language, provider, TOP_N_SERP, seedMap,
+    )
+
+    // ── Build final serpDataMap: real SERP where available, empty stub elsewhere
+    const serpDataMap = new Map(
+      allKeywords.map((kw) => {
+        const results = serpCacheMap.has(kw) ? serpCacheMap.get(kw)!.results : []
+        return [kw, { results, features: analyzeSerpFeatures(results) }]
+      }),
+    )
 
     // Single batched Claude call for all ideation (titles + content angles in target language)
     const ideationMap = await generateIdeationBatch(allKeywords, language, serpDataMap)
@@ -147,8 +176,13 @@ export async function POST(request: NextRequest) {
       const idea = ideas.find((i) => i.keyword === kw)
       const serpEntry = serpDataMap.get(kw)!
       const weakness = calculateSerpWeaknessScore(serpEntry.results, serpEntry.features)
-      const difficulty = estimateDifficulty(serpEntry.results)
-      const volume = idea?.volume ?? volumeMap[kw] ?? null
+
+      // Difficulty priority: Labs real score > Google Ads competition × 100 > SERP-derived
+      const competitionDerived = volumeMap[kw]?.competition != null
+        ? Math.round(volumeMap[kw]!.competition! * 100) : null
+      const difficulty = difficultyMap[kw] ?? competitionDerived ?? estimateDifficulty(serpEntry.results)
+
+      const volume = idea?.volume ?? volumeMap[kw]?.volume ?? null
       const opportunity = calculateOpportunityScore(weakness, volume, difficulty)
       const ideation = ideationMap.get(kw)!
       const kwMeta = autocompleteSourceMap.get(kw)
@@ -165,7 +199,7 @@ export async function POST(request: NextRequest) {
         content_angle: ideation.content_angle,
         topic_cluster: generateTopicCluster(kw),
         serp_features: serpEntry.features as unknown as Record<string, unknown>,
-        raw_serp_data: kw === keyword ? (serpData as unknown as Record<string, unknown>) : null,
+        raw_serp_data: serpCacheMap.has(kw) ? (serpCacheMap.get(kw) as unknown as Record<string, unknown>) : null,
         keyword_source: source,
         relevance_score: kw === keyword ? 1 : (kwMeta?.relevanceScore ?? null),
         source_modifier: kwMeta?.modifier ?? null,

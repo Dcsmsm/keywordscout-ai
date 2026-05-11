@@ -14,16 +14,11 @@ function getDataForSEOClient(): DataForSEOProvider | null {
   return dfsClient
 }
 
-export interface VolumeEntry {
-  volume: number | null
-  competition: number | null
-}
-
-export async function enrichWithVolume(
+export async function enrichWithDifficulty(
   keywords: string[],
   country: string,
   language: string,
-): Promise<Record<string, VolumeEntry>> {
+): Promise<Record<string, number>> {
   if (!keywords.length) return {}
 
   const supabase = createAdminClient()
@@ -32,19 +27,18 @@ export async function enrichWithVolume(
   const cutoff = new Date(Date.now() - CACHE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
   // 1. Check cache
-  const { data: cached } = await supabase
-    .from('keyword_volume_cache' as any)
-    .select('keyword, volume, competition')
+  const { data: cached } = await (supabase.from('keyword_difficulty_cache' as any) as any)
+    .select('keyword, difficulty')
     .in('keyword', keywords)
     .eq('country', cntry)
     .eq('language', lang)
     .gte('cached_at', cutoff)
 
-  const result: Record<string, VolumeEntry> = {}
+  const result: Record<string, number> = {}
   const cachedKeys = new Set<string>()
 
-  for (const row of (cached as Array<{ keyword: string; volume: number | null; competition: number | null }> | null) ?? []) {
-    result[row.keyword] = { volume: row.volume, competition: row.competition }
+  for (const row of (cached as Array<{ keyword: string; difficulty: number | null }> | null) ?? []) {
+    if (row.difficulty != null) result[row.keyword] = row.difficulty
     cachedKeys.add(row.keyword)
   }
 
@@ -52,31 +46,30 @@ export async function enrichWithVolume(
   const misses = keywords.filter((k) => !cachedKeys.has(k))
   if (!misses.length) return result
 
-  // 3. Fetch misses from DataForSEO in one bulk call
+  // 3. Fetch misses from DataForSEO Labs in one bulk call
   const dfs = getDataForSEOClient()
   if (!dfs) return result
 
   try {
-    const fresh = await dfs.getKeywordVolumes(misses, cntry, lang)
+    const fresh = await dfs.getKeywordDifficulty(misses, cntry, lang)
 
-    for (const [kw, entry] of Object.entries(fresh)) {
-      result[kw] = entry
+    for (const [kw, diff] of Object.entries(fresh)) {
+      result[kw] = diff
     }
 
-    // 4. Upsert all misses into cache (including keywords with no data, to avoid re-fetching)
+    // 4. Upsert misses into cache (including nulls to avoid re-fetching unknown keywords)
     const rows = misses.map((kw) => ({
       keyword: kw,
       country: cntry,
       language: lang,
-      volume: fresh[kw]?.volume ?? null,
-      competition: fresh[kw]?.competition ?? null,
+      difficulty: fresh[kw] ?? null,
       cached_at: new Date().toISOString(),
     }))
 
-    await (supabase.from('keyword_volume_cache' as any) as any)
+    await (supabase.from('keyword_difficulty_cache' as any) as any)
       .upsert(rows, { onConflict: 'keyword,country,language' })
   } catch {
-    // Non-critical — analysis continues without volume data
+    // Non-critical — analysis continues with competition-derived or estimated difficulty
   }
 
   return result

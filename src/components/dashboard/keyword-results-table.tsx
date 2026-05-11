@@ -44,8 +44,15 @@ function scoreBg(value: number | null, invert = false) {
   return 'bg-red-50 text-red-600 font-semibold'
 }
 
-function ScoreCell({ value, invert = false }: { value: number | null; invert?: boolean }) {
+function ScoreCell({ value, invert = false, estimated = false }: { value: number | null; invert?: boolean; estimated?: boolean }) {
   if (value == null) return <span className="text-gray-300 text-sm">—</span>
+  if (estimated) {
+    return (
+      <span className="inline-flex items-center justify-center w-10 h-7 rounded-lg text-xs text-gray-300 border border-dashed border-gray-200" title="Estimated — no SERP data for this keyword">
+        ~{value}
+      </span>
+    )
+  }
   return (
     <span className={`inline-flex items-center justify-center w-10 h-7 rounded-lg text-xs ${scoreBg(value, invert)}`}>
       {value}
@@ -203,17 +210,17 @@ export function KeywordResultsTable({ results }: { results: Result[] }) {
 
                     {/* Difficulty (invert: lower = better) */}
                     <td className="px-4 py-3">
-                      <ScoreCell value={r.difficulty_estimate} invert />
+                      <ScoreCell value={r.difficulty_estimate} invert estimated={r.keyword_source !== 'seed'} />
                     </td>
 
                     {/* SERP Weakness */}
                     <td className="px-4 py-3">
-                      <ScoreCell value={r.serp_weakness_score} />
+                      <ScoreCell value={r.serp_weakness_score} estimated={r.keyword_source !== 'seed'} />
                     </td>
 
                     {/* Opportunity */}
                     <td className="px-4 py-3">
-                      <ScoreCell value={r.opportunity_score} />
+                      <ScoreCell value={r.opportunity_score} estimated={r.keyword_source !== 'seed'} />
                     </td>
 
                     {/* Relevance */}

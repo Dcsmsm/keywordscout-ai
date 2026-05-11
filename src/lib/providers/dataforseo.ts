@@ -91,18 +91,47 @@ export class DataForSEOProvider implements SearchProvider {
     keywords: string[],
     country: string,
     language: string,
-  ): Promise<Record<string, number>> {
+  ): Promise<Record<string, { volume: number; competition: number | null }>> {
     if (!keywords.length) return {}
     const locationCode = COUNTRY_LOCATION_CODES[country.toLowerCase()] ?? 2840
     const data = await this.fetchApi('/keywords_data/google_ads/search_volume/live', [
       { keywords, location_code: locationCode, language_code: language },
     ])
-    const tasks = (data.tasks as Array<{ result?: Array<{ keyword: string; search_volume: number }> }>) ?? []
-    const map: Record<string, number> = {}
+    const tasks = (data.tasks as Array<{
+      result?: Array<{ keyword: string; search_volume: number; competition: number | null }>
+    }>) ?? []
+    const map: Record<string, { volume: number; competition: number | null }> = {}
     for (const task of tasks) {
       for (const item of task.result ?? []) {
         if (item.keyword && item.search_volume != null) {
-          map[item.keyword] = item.search_volume
+          map[item.keyword] = {
+            volume: item.search_volume,
+            competition: item.competition ?? null,
+          }
+        }
+      }
+    }
+    return map
+  }
+
+  async getKeywordDifficulty(
+    keywords: string[],
+    country: string,
+    language: string,
+  ): Promise<Record<string, number>> {
+    if (!keywords.length) return {}
+    const locationCode = COUNTRY_LOCATION_CODES[country.toLowerCase()] ?? 2840
+    const data = await this.fetchApi('/dataforseo_labs/google/keyword_difficulty/live', [
+      { keywords, location_code: locationCode, language_code: language },
+    ])
+    const tasks = (data.tasks as Array<{
+      result?: Array<{ keyword: string; keyword_difficulty: number }>
+    }>) ?? []
+    const map: Record<string, number> = {}
+    for (const task of tasks) {
+      for (const item of task.result ?? []) {
+        if (item.keyword && item.keyword_difficulty != null) {
+          map[item.keyword] = item.keyword_difficulty
         }
       }
     }
