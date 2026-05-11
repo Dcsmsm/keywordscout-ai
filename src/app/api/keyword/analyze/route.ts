@@ -15,7 +15,7 @@ import {
   calculateOpportunityScore,
   estimateDifficulty,
 } from '@/lib/ai/scoring'
-import { generateIdeation, generateTopicCluster } from '@/lib/ai/ideation'
+import { generateIdeationBatch, generateTopicCluster, expandKeywords } from '@/lib/ai/ideation'
 import { enrichWithVolume } from '@/lib/providers/volume'
 import { expandKeywordsPipeline } from '@/lib/keyword-expansion'
 import { PLAN_LIMITS } from '@/types/analysis'
@@ -115,57 +115,62 @@ export async function POST(request: NextRequest) {
 
     const serpKeywords = [keyword, ...ideas.map((k) => k.keyword).filter((k) => k !== keyword)]
 
-    // Expand via autocomplete mining pipeline
-    const expansion = await expandKeywordsPipeline({
-      seed: keyword,
-      language,
-      country,
-      miningDepth,
-      maxSuggestions,
-    })
+    // Run autocomplete mining + Claude keyword expansion in parallel
+    const [expansion, claudeKeywords] = await Promise.all([
+      expandKeywordsPipeline({ seed: keyword, language, country, miningDepth, maxSuggestions }),
+      expandKeywords(keyword, language, serpData, serpKeywords, 15),
+    ])
 
-    // Merge: seed + SERP ideas + mined autocomplete, deduplicated
+    // Merge: seed → SERP ideas → autocomplete mined → Claude-generated, deduplicated
     const minedKeywords = expansion.keywords.map((k) => k.keyword)
-    const allKeywordsSet = [keyword, ...serpKeywords.filter((k) => k !== keyword), ...minedKeywords]
+    const allKeywordsSet = [keyword, ...serpKeywords.filter((k) => k !== keyword), ...minedKeywords, ...claudeKeywords]
     const allKeywords = [...new Set(allKeywordsSet)].slice(0, maxSuggestions)
 
-    // Build source map for provenance tracking
-    const sourceMap = new Map(expansion.keywords.map((k) => [k.keyword, k]))
+    // Build source maps for provenance tracking
+    const autocompleteSourceMap = new Map(expansion.keywords.map((k) => [k.keyword, k]))
+    const claudeSet = new Set(claudeKeywords)
+
+    // Build SERP data map for batch ideation
+    const serpDataMap = new Map<string, { results: typeof serpData.results; features: ReturnType<typeof analyzeSerpFeatures> }>()
+    for (const kw of allKeywords) {
+      const serp = kw === keyword ? serpData : { keyword: kw, results: [] as typeof serpData.results }
+      serpDataMap.set(kw, { results: serp.results, features: analyzeSerpFeatures(serp.results) })
+    }
 
     // Bulk volume enrichment from DataForSEO (no-op if credentials not set)
     const volumeMap = await enrichWithVolume(allKeywords, country, language)
 
-    // Score + AI ideation for all keywords in parallel
-    const rawResults = await Promise.all(
-      allKeywords.map(async (kw) => {
-        const idea = ideas.find((i) => i.keyword === kw)
-        const serp = kw === keyword ? serpData : { keyword: kw, results: [] }
-        const features = analyzeSerpFeatures(serp.results)
-        const weakness = calculateSerpWeaknessScore(serp.results, features)
-        const difficulty = estimateDifficulty(serp.results)
-        const volume = idea?.volume ?? volumeMap[kw] ?? null
-        const opportunity = calculateOpportunityScore(weakness, volume, difficulty)
-        const ideation = await generateIdeation(kw, language, serp.results, features)
-        const kwMeta = sourceMap.get(kw)
-        return {
-          analysis_id: analysisId,
-          keyword: kw,
-          estimated_volume: volume,
-          intent: ideation.intent,
-          difficulty_estimate: difficulty,
-          serp_weakness_score: weakness,
-          opportunity_score: opportunity,
-          suggested_title: ideation.suggested_title,
-          content_angle: ideation.content_angle,
-          topic_cluster: generateTopicCluster(kw),
-          serp_features: features as unknown as Record<string, unknown>,
-          raw_serp_data: kw === keyword ? (serp as unknown as Record<string, unknown>) : null,
-          keyword_source: kw === keyword ? 'seed' : (kwMeta?.source ?? 'autocomplete'),
-          relevance_score: kw === keyword ? 1 : (kwMeta?.relevanceScore ?? null),
-          source_modifier: kwMeta?.modifier ?? null,
-        }
-      })
-    )
+    // Single batched Claude call for all ideation (titles + content angles in target language)
+    const ideationMap = await generateIdeationBatch(allKeywords, language, serpDataMap)
+
+    const rawResults = allKeywords.map((kw) => {
+      const idea = ideas.find((i) => i.keyword === kw)
+      const serpEntry = serpDataMap.get(kw)!
+      const weakness = calculateSerpWeaknessScore(serpEntry.results, serpEntry.features)
+      const difficulty = estimateDifficulty(serpEntry.results)
+      const volume = idea?.volume ?? volumeMap[kw] ?? null
+      const opportunity = calculateOpportunityScore(weakness, volume, difficulty)
+      const ideation = ideationMap.get(kw)!
+      const kwMeta = autocompleteSourceMap.get(kw)
+      const source = kw === keyword ? 'seed' : claudeSet.has(kw) ? 'claude' : (kwMeta?.source ?? 'autocomplete')
+      return {
+        analysis_id: analysisId,
+        keyword: kw,
+        estimated_volume: volume,
+        intent: ideation.intent,
+        difficulty_estimate: difficulty,
+        serp_weakness_score: weakness,
+        opportunity_score: opportunity,
+        suggested_title: ideation.suggested_title,
+        content_angle: ideation.content_angle,
+        topic_cluster: generateTopicCluster(kw),
+        serp_features: serpEntry.features as unknown as Record<string, unknown>,
+        raw_serp_data: kw === keyword ? (serpData as unknown as Record<string, unknown>) : null,
+        keyword_source: source,
+        relevance_score: kw === keyword ? 1 : (kwMeta?.relevanceScore ?? null),
+        source_modifier: kwMeta?.modifier ?? null,
+      }
+    })
 
     // Sort: seed keyword first, then by opportunity score descending
     const resultsToInsert = [

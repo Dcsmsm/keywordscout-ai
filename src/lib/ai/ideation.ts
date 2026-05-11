@@ -16,47 +16,367 @@ const LANGUAGE_NAMES: Record<string, string> = {
   fr: 'French', de: 'German', pt: 'Portuguese',
 }
 
-function buildPrompt(
+// ── Multilingual fallback templates ─────────────────────────────────────────
+
+type LangTemplates = {
+  informational: string[]
+  commercial: string[]
+  transactional: string[]
+  navigational: string[]
+  angle: string
+}
+
+const LANG_TEMPLATES: Record<string, LangTemplates> = {
+  it: {
+    informational: [
+      '{kw}: Guida Completa {yr}', 'Tutto su {kw}: Guida Pratica', '{kw}: Come Funziona e Come Usarlo',
+    ],
+    commercial: [
+      'Migliori {kw} del {yr}: Confronto e Recensioni', '{kw}: Quale Scegliere? Guida {yr}',
+    ],
+    transactional: [
+      'Dove Acquistare {kw}: Prezzi e Offerte', '{kw}: Prezzi, Sconti e Dove Comprare',
+    ],
+    navigational: [
+      '{kw}: Guida Ufficiale e Risorse', 'Guida a {kw}: Tutto Quello che Serve',
+    ],
+    angle: 'Guida aggiornata al {yr} su "{kw}" con esempi pratici e consigli concreti per chi inizia.',
+  },
+  es: {
+    informational: [
+      '{kw}: Guía Completa {yr}', 'Todo sobre {kw}: Guía Práctica', '{kw}: Cómo Funciona',
+    ],
+    commercial: [
+      'Mejores {kw} {yr}: Comparativa y Opiniones', '{kw}: ¿Cuál Elegir? Guía {yr}',
+    ],
+    transactional: [
+      'Dónde Comprar {kw}: Precios y Ofertas', '{kw}: Precios, Descuentos y Dónde Comprar',
+    ],
+    navigational: [
+      '{kw}: Guía Oficial y Recursos', 'Guía de {kw}: Todo lo que Necesitas',
+    ],
+    angle: 'Guía actualizada {yr} sobre "{kw}" con ejemplos prácticos y consejos para principiantes.',
+  },
+  fr: {
+    informational: [
+      '{kw} : Guide Complet {yr}', 'Tout sur {kw} : Guide Pratique', '{kw} : Comment Ça Marche',
+    ],
+    commercial: [
+      'Meilleurs {kw} {yr} : Comparatif et Avis', '{kw} : Lequel Choisir ? Guide {yr}',
+    ],
+    transactional: [
+      'Où Acheter {kw} : Prix et Offres', '{kw} : Prix, Promos et Où Acheter',
+    ],
+    navigational: [
+      '{kw} : Guide Officiel et Ressources', 'Guide {kw} : Tout ce qu\'il Faut Savoir',
+    ],
+    angle: 'Guide mis à jour {yr} sur "{kw}" avec exemples pratiques et conseils pour débutants.',
+  },
+  de: {
+    informational: [
+      '{kw}: Vollständiger Leitfaden {yr}', 'Alles über {kw}: Praxisguide', '{kw}: Wie es Funktioniert',
+    ],
+    commercial: [
+      'Beste {kw} {yr}: Vergleich und Bewertungen', '{kw}: Welches Wählen? Leitfaden {yr}',
+    ],
+    transactional: [
+      'Wo {kw} Kaufen: Preise und Angebote', '{kw}: Preise, Rabatte und Kauftipps',
+    ],
+    navigational: [
+      '{kw}: Offizieller Leitfaden und Ressourcen', 'Leitfaden für {kw}: Alles Wichtige',
+    ],
+    angle: 'Aktualisierter Leitfaden {yr} zu "{kw}" mit praktischen Beispielen und Tipps für Einsteiger.',
+  },
+  pt: {
+    informational: [
+      '{kw}: Guia Completo {yr}', 'Tudo sobre {kw}: Guia Prático', '{kw}: Como Funciona',
+    ],
+    commercial: [
+      'Melhores {kw} {yr}: Comparativo e Avaliações', '{kw}: Qual Escolher? Guia {yr}',
+    ],
+    transactional: [
+      'Onde Comprar {kw}: Preços e Ofertas', '{kw}: Preços, Descontos e Onde Comprar',
+    ],
+    navigational: [
+      '{kw}: Guia Oficial e Recursos', 'Guia de {kw}: Tudo o que Você Precisa',
+    ],
+    angle: 'Guia atualizado {yr} sobre "{kw}" com exemplos práticos e dicas para iniciantes.',
+  },
+  en: {
+    informational: [
+      '{kw}: The Complete Guide ({yr})', 'Everything About {kw}: Practical Guide', '{kw} Explained: How It Works',
+    ],
+    commercial: [
+      'Best {kw} in {yr}: Reviews & Comparison', '{kw}: Which to Choose? {yr} Guide',
+    ],
+    transactional: [
+      'Where to Buy {kw}: Best Prices & Deals', '{kw}: Pricing, Discounts & Where to Buy',
+    ],
+    navigational: [
+      '{kw}: Official Guide & Resources', 'Getting Started with {kw}: Full Guide',
+    ],
+    angle: 'Updated {yr} guide on "{kw}" with practical examples and actionable advice for beginners.',
+  },
+}
+
+function getLangTemplates(language: string): LangTemplates {
+  return LANG_TEMPLATES[language.slice(0, 2).toLowerCase()] ?? LANG_TEMPLATES.en
+}
+
+function applyTemplate(tpl: string, keyword: string): string {
+  const kw = keyword.split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+  return tpl.replace(/{kw}/g, kw).replace(/{yr}/g, String(CURRENT_YEAR))
+}
+
+// ── Claude prompts ────────────────────────────────────────────────────────────
+
+function buildSinglePrompt(
   keyword: string,
+  lang: string,
   languageName: string,
   serpResults: NormalizedSerpResult[],
   features: SerpFeatures,
 ): string {
-  const top5 = serpResults.slice(0, 5).map(
-    (r, i) => `${i + 1}. [${r.type}] "${r.title}" — ${r.snippet ?? 'no snippet'}`
-  ).join('\n')
+  const top5 = serpResults.slice(0, 5)
+    .map((r, i) => `${i + 1}. [${r.type}] "${r.title}"${r.snippet ? ` — ${r.snippet}` : ''}`)
+    .join('\n')
 
   const flags = [
-    features.hasReddit && 'Reddit present in SERP',
-    features.hasQuora && 'Quora present in SERP',
-    features.hasForums && 'Forum results present',
-    features.hasWeakDomains && 'Weak/thin domains present',
-    features.hasOutdatedResults && 'Outdated results (2+ years old)',
-    features.hasVideoResults && 'Video results present',
-  ].filter(Boolean).join(', ') || 'no special features'
+    features.hasReddit && 'Reddit in SERP',
+    features.hasQuora && 'Quora in SERP',
+    features.hasForums && 'forum results',
+    features.hasWeakDomains && 'weak domains',
+    features.hasOutdatedResults && 'outdated results',
+    features.hasVideoResults && 'video results',
+  ].filter(Boolean).join(', ') || 'none'
 
-  return `You are an SEO expert. Analyze this keyword and return ONLY a JSON object.
+  return `Analyze this SEO keyword and return ONLY a JSON object.
 
 Keyword: "${keyword}"
-Target language: ${languageName}
+Output language: ${languageName} (code: ${lang})
 SERP signals: ${flags}
-
 Top SERP results:
-${top5 || 'No SERP data available'}
+${top5 || '(no SERP data available)'}
 
 Return JSON with exactly these fields:
 {
-  "intent": one of "informational" | "commercial" | "transactional" | "navigational",
-  "suggested_title": SEO title tag (50-60 chars) in ${languageName}, optimized to rank,
-  "content_angle": 1-2 sentences in ${languageName} describing the unique editorial angle to beat these results
+  "intent": "informational"|"commercial"|"transactional"|"navigational",
+  "suggested_title": "<50-60 char SEO title in ${languageName}>",
+  "content_angle": "<1-2 sentences in ${languageName} explaining how to outrank these results>"
 }
 
-Rules:
-- Write suggested_title and content_angle in ${languageName}
-- suggested_title must be compelling, include the keyword, and hint at value
-- content_angle must explain WHY a new article can outrank current results
-- Return ONLY the JSON, no markdown, no explanation`
+MANDATORY: Both "suggested_title" and "content_angle" must be written ENTIRELY in ${languageName}. Zero English words unless they are part of the keyword itself. Return ONLY the JSON, no markdown.`
 }
+
+function buildBatchPrompt(
+  items: Array<{ keyword: string; serpSignals: string }>,
+  lang: string,
+  languageName: string,
+): string {
+  const keywordList = items
+    .map((item, i) => `${i + 1}. "${item.keyword}" [SERP: ${item.serpSignals}]`)
+    .join('\n')
+
+  return `You are an SEO expert. Analyze these ${items.length} keywords and return a JSON array.
+
+Output language for ALL text: ${languageName} (${lang})
+Year: ${CURRENT_YEAR}
+
+Keywords:
+${keywordList}
+
+Return a JSON array with exactly ${items.length} objects in the same order:
+[
+  {
+    "keyword": "<exact keyword from input>",
+    "intent": "informational"|"commercial"|"transactional"|"navigational",
+    "suggested_title": "<50-60 char SEO title — ENTIRELY in ${languageName}>",
+    "content_angle": "<1-2 sentences — ENTIRELY in ${languageName} — unique angle to rank>"
+  },
+  ...
+]
+
+MANDATORY RULES:
+- Every word of suggested_title and content_angle must be in ${languageName}
+- Include the keyword naturally in suggested_title
+- content_angle explains why a new article can outrank current results
+- Return ONLY the JSON array, no markdown, no extra text`
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+export async function generateIdeationBatch(
+  keywords: string[],
+  language: string,
+  serpDataMap: Map<string, { results: NormalizedSerpResult[]; features: SerpFeatures }>,
+): Promise<Map<string, IdeationResult>> {
+  const results = new Map<string, IdeationResult>()
+  const lang = language.slice(0, 2).toLowerCase()
+  const languageName = LANGUAGE_NAMES[lang] ?? 'English'
+
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    for (const kw of keywords) {
+      results.set(kw, fallbackIdeation(kw, language))
+    }
+    return results
+  }
+
+  // Seed keyword (has SERP data) — call individually for best quality
+  for (const kw of keywords) {
+    const serpEntry = serpDataMap.get(kw)
+    if (serpEntry && serpEntry.results.length > 0) {
+      try {
+        const result = await callClaudeSingle(kw, lang, languageName, serpEntry.results, serpEntry.features)
+        results.set(kw, result)
+      } catch {
+        results.set(kw, fallbackIdeation(kw, language))
+      }
+    }
+  }
+
+  // All non-seed keywords — batch in one call
+  const nonSeedKeywords = keywords.filter((kw) => !results.has(kw))
+  if (nonSeedKeywords.length === 0) return results
+
+  // Process in chunks of 20 to stay within token limits
+  const CHUNK_SIZE = 20
+  for (let i = 0; i < nonSeedKeywords.length; i += CHUNK_SIZE) {
+    const chunk = nonSeedKeywords.slice(i, i + CHUNK_SIZE)
+    try {
+      const batchResults = await callClaudeBatch(chunk, lang, languageName, serpDataMap)
+      for (const [kw, res] of batchResults) {
+        results.set(kw, res)
+      }
+    } catch {
+      for (const kw of chunk) {
+        results.set(kw, fallbackIdeation(kw, language))
+      }
+    }
+  }
+
+  return results
+}
+
+async function callClaudeSingle(
+  keyword: string,
+  lang: string,
+  languageName: string,
+  serpResults: NormalizedSerpResult[],
+  features: SerpFeatures,
+): Promise<IdeationResult> {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+  const message = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 512,
+    system: `You are an SEO expert. Respond with valid JSON only. All text values must be written in ${languageName} (${lang}).`,
+    messages: [{ role: 'user', content: buildSinglePrompt(keyword, lang, languageName, serpResults, features) }],
+  })
+
+  const text = message.content[0]?.type === 'text' ? message.content[0].text.trim() : ''
+  const clean = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim()
+  const parsed = JSON.parse(clean) as Partial<IdeationResult>
+
+  const VALID_INTENTS: IdeationIntent[] = ['informational', 'commercial', 'transactional', 'navigational']
+  return {
+    intent: VALID_INTENTS.includes(parsed.intent as IdeationIntent)
+      ? (parsed.intent as IdeationIntent)
+      : 'informational',
+    suggested_title: parsed.suggested_title || applyTemplate(getLangTemplates(lang).informational[0], keyword),
+    content_angle: parsed.content_angle || applyTemplate(getLangTemplates(lang).angle, keyword),
+  }
+}
+
+async function callClaudeBatch(
+  keywords: string[],
+  lang: string,
+  languageName: string,
+  serpDataMap: Map<string, { results: NormalizedSerpResult[]; features: SerpFeatures }>,
+): Promise<Map<string, IdeationResult>> {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+  const t = getLangTemplates(lang)
+
+  const items = keywords.map((kw) => {
+    const entry = serpDataMap.get(kw)
+    const flags = entry && entry.results.length > 0
+      ? [
+          entry.features.hasReddit && 'reddit',
+          entry.features.hasForums && 'forums',
+          entry.features.hasWeakDomains && 'weak-domains',
+          entry.features.hasOutdatedResults && 'outdated',
+        ].filter(Boolean).join(',') || 'standard'
+      : 'no-serp-data'
+    return { keyword: kw, serpSignals: flags }
+  })
+
+  const message = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 4096,
+    system: `You are an SEO expert. Respond with valid JSON only. All text values must be written in ${languageName} (${lang}). No English unless the keyword itself is English.`,
+    messages: [{ role: 'user', content: buildBatchPrompt(items, lang, languageName) }],
+  })
+
+  const text = message.content[0]?.type === 'text' ? message.content[0].text.trim() : '[]'
+  const clean = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim()
+  const parsed = JSON.parse(clean) as Array<{
+    keyword?: string
+    intent?: string
+    suggested_title?: string
+    content_angle?: string
+  }>
+
+  const VALID_INTENTS: IdeationIntent[] = ['informational', 'commercial', 'transactional', 'navigational']
+  const resultMap = new Map<string, IdeationResult>()
+
+  for (let i = 0; i < keywords.length; i++) {
+    const kw = keywords[i]
+    const item = parsed[i] ?? {}
+    resultMap.set(kw, {
+      intent: VALID_INTENTS.includes(item.intent as IdeationIntent)
+        ? (item.intent as IdeationIntent)
+        : 'informational',
+      suggested_title: item.suggested_title || applyTemplate(t.informational[0], kw),
+      content_angle: item.content_angle || applyTemplate(t.angle, kw),
+    })
+  }
+
+  return resultMap
+}
+
+// Kept for backwards compatibility — used by expandKeywords and old call sites
+export async function generateIdeation(
+  keyword: string,
+  language: string,
+  serpResults: NormalizedSerpResult[],
+  features: SerpFeatures,
+): Promise<IdeationResult> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) return fallbackIdeation(keyword, language)
+
+  const lang = language.slice(0, 2).toLowerCase()
+  const languageName = LANGUAGE_NAMES[lang] ?? 'English'
+
+  try {
+    return await callClaudeSingle(keyword, lang, languageName, serpResults, features)
+  } catch {
+    return fallbackIdeation(keyword, language)
+  }
+}
+
+function fallbackIdeation(keyword: string, language: string): IdeationResult {
+  const intent = detectIntent(keyword)
+  const lang = language.slice(0, 2).toLowerCase()
+  const t = getLangTemplates(lang)
+  const intentKey = intent as keyof Pick<LangTemplates, 'informational' | 'commercial' | 'transactional' | 'navigational'>
+  const templates = t[intentKey] ?? t.informational
+  return {
+    intent,
+    suggested_title: applyTemplate(templates[0], keyword),
+    content_angle: applyTemplate(t.angle, keyword),
+  }
+}
+
+// ── Claude keyword expansion ──────────────────────────────────────────────────
 
 export async function expandKeywords(
   seed: string,
@@ -68,7 +388,8 @@ export async function expandKeywords(
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return []
 
-  const languageName = LANGUAGE_NAMES[language.slice(0, 2).toLowerCase()] ?? 'English'
+  const lang = language.slice(0, 2).toLowerCase()
+  const languageName = LANGUAGE_NAMES[lang] ?? 'English'
   const paa = (serpData.peopleAlsoAsk ?? []).slice(0, 5).join(' | ')
   const related = (serpData.relatedSearches ?? []).slice(0, 5).join(' | ')
   const existing = existingKeywords.join(', ')
@@ -76,23 +397,16 @@ export async function expandKeywords(
   const prompt = `You are an SEO keyword research expert.
 
 Seed keyword: "${seed}"
-Language: ${languageName}
+Output language: ${languageName} (${lang})
+Already found (do NOT repeat): ${existing}
+People Also Ask: ${paa || 'none'}
+Related Searches: ${related || 'none'}
 
-Already found keywords (do NOT repeat these): ${existing}
-
-SERP context — People Also Ask: ${paa || 'none'}
-SERP context — Related Searches: ${related || 'none'}
-
-Generate exactly ${count} long-tail keyword variations that real users search for.
-Mix these types:
-- Question searches (how, what, why, best way to…)
-- "Best X for Y" comparisons
-- Problem-oriented searches
-- Modifier + keyword (cheap, easy, fast, professional…)
-- Local or context variants
+Generate exactly ${count} long-tail keyword variations that real users search for in ${languageName}.
+Mix types: questions (how, what, why), comparisons (best X for Y), problem-oriented, modifier + keyword, context variants.
 
 Rules:
-- Write ALL keywords in ${languageName}
+- ALL ${count} keywords must be written in ${languageName}
 - Do NOT repeat any already-found keyword
 - Return ONLY a JSON array of ${count} strings, no explanation, no markdown`
 
@@ -101,125 +415,43 @@ Rules:
     const message = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
-      system: 'You are an SEO keyword research expert. Always respond with valid JSON only.',
+      system: `You are an SEO keyword research expert. Respond with valid JSON only. All keywords must be in ${languageName}.`,
       messages: [{ role: 'user', content: prompt }],
     })
 
     const text = message.content[0]?.type === 'text' ? message.content[0].text.trim() : '[]'
-    const parsed = JSON.parse(text) as unknown[]
+    const clean = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim()
+    const parsed = JSON.parse(clean) as unknown[]
+    const existingLower = existingKeywords.map((e) => e.toLowerCase())
     return parsed
       .filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
       .map((k) => k.trim().toLowerCase())
-      .filter((k) => !existingKeywords.map((e) => e.toLowerCase()).includes(k))
+      .filter((k) => !existingLower.includes(k))
       .slice(0, count)
   } catch {
     return []
   }
 }
 
-export async function generateIdeation(
-  keyword: string,
-  language: string,
-  serpResults: NormalizedSerpResult[],
-  features: SerpFeatures,
-): Promise<IdeationResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) return fallbackIdeation(keyword, language, serpResults)
-
-  const languageName = LANGUAGE_NAMES[language.slice(0, 2).toLowerCase()] ?? 'English'
-
-  try {
-    const client = new Anthropic({ apiKey })
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
-      system: 'You are an SEO expert. Always respond with valid JSON only, no markdown fences.',
-      messages: [{ role: 'user', content: buildPrompt(keyword, languageName, serpResults, features) }],
-    })
-
-    const text = message.content[0]?.type === 'text' ? message.content[0].text.trim() : ''
-    const parsed = JSON.parse(text) as Partial<IdeationResult>
-
-    const VALID_INTENTS: IdeationIntent[] = ['informational', 'commercial', 'transactional', 'navigational']
-    const intent = VALID_INTENTS.includes(parsed.intent as IdeationIntent)
-      ? (parsed.intent as IdeationIntent)
-      : 'informational'
-
-    return {
-      intent,
-      suggested_title: parsed.suggested_title || generateTitle(keyword, intent),
-      content_angle: parsed.content_angle || generateContentAngle(keyword, serpResults),
-    }
-  } catch {
-    return fallbackIdeation(keyword, language, serpResults)
-  }
-}
-
-function fallbackIdeation(
-  keyword: string,
-  language: string,
-  serpResults: NormalizedSerpResult[],
-): IdeationResult {
-  const intent = detectIntent(keyword)
-  return {
-    intent,
-    suggested_title: generateTitle(keyword, intent),
-    content_angle: generateContentAngle(keyword, serpResults),
-  }
-}
-
-// ── Fallback template functions (English) ────────────────────────────────────
+// ── Fallback helpers (kept for generateTopicCluster) ─────────────────────────
 
 export function detectIntent(keyword: string): IdeationIntent {
   const kw = keyword.toLowerCase()
-  if (/\b(buy|purchase|order|price|discount|coupon|deal|shop|cheap)\b/.test(kw)) return 'transactional'
-  if (/\b(best|top|review|vs|compare|alternatives|cheapest|recommend)\b/.test(kw)) return 'commercial'
-  if (/\b(login|sign in|download|official|account)\b/.test(kw)) return 'navigational'
-  if (/\b(how|what|why|guide|tutorial|tips|learn|explain)\b/.test(kw)) return 'informational'
+  if (/\b(buy|purchase|order|price|discount|coupon|deal|shop|cheap|acquist|compr|kauf|acheter|comprar)\b/.test(kw)) return 'transactional'
+  if (/\b(best|top|review|vs|compare|alternatives|miglio|mejor|meilleur|beste|melhor|recensi|opinioni)\b/.test(kw)) return 'commercial'
+  if (/\b(login|sign in|download|official|account|ufficiale|acceso|connexion)\b/.test(kw)) return 'navigational'
   return 'informational'
 }
 
-export function generateTitle(keyword: string, intent: string): string {
-  const kw = keyword.split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-  const templates: Record<string, string[]> = {
-    informational: [
-      `${kw}: The Complete Guide (${CURRENT_YEAR})`,
-      `Everything You Need to Know About ${kw}`,
-      `${kw} Explained: A Beginner's Guide`,
-    ],
-    commercial: [
-      `Best ${kw} in ${CURRENT_YEAR} (Honest Review)`,
-      `${kw}: Top Options Compared`,
-    ],
-    transactional: [
-      `Where to Get ${kw} (Best Deals)`,
-      `${kw}: Pricing & Plans`,
-    ],
-    navigational: [
-      `${kw}: Official Guide & Resources`,
-      `Getting Started with ${kw}`,
-    ],
-  }
-  const options = templates[intent] ?? templates.informational
-  return options[Math.floor(Math.random() * options.length)]
+export function generateTitle(keyword: string, intent: string, language = 'en'): string {
+  const t = getLangTemplates(language)
+  const intentKey = intent as keyof Pick<LangTemplates, 'informational' | 'commercial' | 'transactional' | 'navigational'>
+  const templates = t[intentKey] ?? t.informational
+  return applyTemplate(templates[Math.floor(Math.random() * templates.length)], keyword)
 }
 
-export function generateContentAngle(keyword: string, serpResults: NormalizedSerpResult[]): string {
-  const hasForums = serpResults.some((r) => r.type === 'forum')
-  const hasOutdated = serpResults.some((r) => {
-    const match = r.title.match(/\b(20\d{2})\b/)
-    return match && CURRENT_YEAR - parseInt(match[1]) >= 2
-  })
-  const hasVideo = serpResults.some((r) => r.type === 'video')
-  const weakCount = serpResults.filter((r) => r.type === 'forum').length
-
-  if (hasForums && weakCount >= 2)
-    return `Comprehensive, well-structured guide targeting people asking "${keyword}" in forums. Cover the topic with practical examples they haven't seen before.`
-  if (hasOutdated)
-    return `Fresh ${CURRENT_YEAR} update on "${keyword}". The current top results are outdated — lead with what's changed and provide current, accurate information.`
-  if (hasVideo)
-    return `Text-first deep dive on "${keyword}" that video content can't match. Include step-by-step breakdowns and searchable indexed content.`
-  return `Authoritative, experience-based content on "${keyword}" that goes beyond surface-level explanations. Include real examples, data, and unique insights.`
+export function generateContentAngle(keyword: string, _serpResults: NormalizedSerpResult[], language = 'en'): string {
+  return applyTemplate(getLangTemplates(language).angle, keyword)
 }
 
 export function clusterKeywords(keywords: KeywordIdea[]): Record<string, KeywordIdea[]> {
@@ -245,7 +477,7 @@ function findBestCluster(words: string[], existingClusters: string[]): string | 
 export function generateTopicCluster(seed: string): string {
   const cleanSeed = seed.toLowerCase().trim()
   const modifier = cleanSeed.split(' ').find((w) =>
-    ['guide', 'tips', 'how', 'best', 'tools', 'tutorial'].includes(w)
+    ['guide', 'tips', 'how', 'best', 'tools', 'tutorial', 'guida', 'migliore', 'come'].includes(w)
   )
   if (modifier) return cleanSeed.replace(modifier, '').trim().split(' ').slice(0, 3).join(' ')
   return cleanSeed.split(' ').slice(0, 2).join(' ')
