@@ -153,6 +153,7 @@ function buildSinglePrompt(
   return `Analyze this SEO keyword and return ONLY a JSON object.
 
 Keyword: "${keyword}"
+Current year: ${CURRENT_YEAR}
 Output language: ${languageName} (code: ${lang})
 SERP signals: ${flags}
 Top SERP results:
@@ -165,7 +166,9 @@ Return JSON with exactly these fields:
   "content_angle": "<1-2 sentences in ${languageName} explaining how to outrank these results>"
 }
 
-MANDATORY: Both "suggested_title" and "content_angle" must be written ENTIRELY in ${languageName}. Zero English words unless they are part of the keyword itself. Return ONLY the JSON, no markdown.`
+MANDATORY: Both "suggested_title" and "content_angle" must be written ENTIRELY in ${languageName}. Zero English words unless they are part of the keyword itself.
+- If the keyword contains a past year (e.g. "2023", "2024", "2025"), update it to ${CURRENT_YEAR} in suggested_title.
+Return ONLY the JSON, no markdown.`
 }
 
 function buildBatchPrompt(
@@ -200,6 +203,7 @@ MANDATORY RULES:
 - Every word of suggested_title and content_angle must be in ${languageName}
 - Include the keyword naturally in suggested_title
 - content_angle explains why a new article can outrank current results
+- If a keyword contains a past year (e.g. "2023", "2024", "2025"), update it to ${CURRENT_YEAR} in suggested_title
 - Return ONLY the JSON array, no markdown, no extra text`
 }
 

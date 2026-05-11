@@ -179,7 +179,9 @@ export async function POST(request: NextRequest) {
     const rawResults = allKeywords.map((kw) => {
       const idea = ideas.find((i) => i.keyword === kw)
       const serpEntry = serpDataMap.get(kw)!
-      const weakness = calculateSerpWeaknessScore(serpEntry.results, serpEntry.features)
+      const weakness = serpCacheMap.has(kw)
+        ? calculateSerpWeaknessScore(serpEntry.results, serpEntry.features)
+        : null
 
       // Difficulty priority: Labs real score > Google Ads competition × 100 > SERP-derived
       const competitionDerived = volumeMap[kw]?.competition != null

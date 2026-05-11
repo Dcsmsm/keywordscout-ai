@@ -74,15 +74,15 @@ export function calculateSerpWeaknessScore(
 }
 
 export function calculateOpportunityScore(
-  serpWeaknessScore: number,
+  serpWeaknessScore: number | null,
   volume: number | null,
   difficulty: number | null
 ): number {
-  const weaknessWeight = serpWeaknessScore * 0.5
+  const weaknessWeight = (serpWeaknessScore ?? 25) * 0.5
   const volumeScore = volume
     ? Math.min((Math.log10(Math.max(volume, 1)) / Math.log10(100000)) * 30, 30)
     : 15
-  const difficultyPenalty = difficulty ? (difficulty / 100) * 20 : 10
+  const difficultyPenalty = difficulty != null ? (difficulty / 100) * 20 : 10
 
   return Math.round(Math.min(weaknessWeight + volumeScore - difficultyPenalty + 10, 100))
 }

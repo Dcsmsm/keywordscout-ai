@@ -88,11 +88,22 @@ function Th({
 
 const ALL_INTENTS = ['all', 'informational', 'commercial', 'transactional', 'navigational'] as const
 
+const SCORE_GUIDE = [
+  { label: 'Opportunity ≥ 45', desc: 'keyword ad alto potenziale' },
+  { label: 'Difficulty ≤ 40',  desc: 'competizione bassa / accessibile' },
+  { label: 'Weakness ≥ 35',    desc: 'SERP battibile (solo se reale, non stimata ~)' },
+  { label: 'Relevance ≥ 70%',  desc: 'topic centrato sulla seed keyword' },
+]
+
 export function KeywordResultsTable({ results }: { results: Result[] }) {
   const [sortKey, setSortKey]       = useState<SortKey>('opportunity_score')
   const [sortDir, setSortDir]       = useState<SortDir>('desc')
   const [intentFilter, setFilter]   = useState('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [guideOpen, setGuideOpen]   = useState(() => {
+    if (typeof window === 'undefined') return true
+    return localStorage.getItem('ks-guide-closed') !== '1'
+  })
 
   const presentIntents = useMemo(
     () => ALL_INTENTS.filter(i => i === 'all' || results.some(r => r.intent === i)),
@@ -127,6 +138,29 @@ export function KeywordResultsTable({ results }: { results: Result[] }) {
 
   return (
     <div className="space-y-4">
+      {/* Score guide */}
+      {guideOpen && (
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 px-4 py-3 text-xs">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-semibold text-emerald-700">Come leggere i punteggi</span>
+            <button
+              onClick={() => { setGuideOpen(false); localStorage.setItem('ks-guide-closed', '1') }}
+              className="text-emerald-400 hover:text-emerald-600 text-xs"
+            >
+              nascondi
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+            {SCORE_GUIDE.map(({ label, desc }) => (
+              <div key={label} className="flex gap-2">
+                <span className="font-medium text-emerald-700 shrink-0">{label}</span>
+                <span className="text-gray-500">{desc}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Intent filter pills */}
       <div className="flex gap-2 flex-wrap">
         {presentIntents.map(intent => (
