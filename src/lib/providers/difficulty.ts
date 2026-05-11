@@ -40,8 +40,10 @@ export async function enrichWithDifficulty(
   const cachedKeys = new Set<string>()
 
   for (const row of (cached as Array<{ keyword: string; difficulty: number | null }> | null) ?? []) {
-    if (row.difficulty != null) result[row.keyword] = row.difficulty
-    cachedKeys.add(row.keyword)
+    if (row.difficulty != null) {
+      result[row.keyword] = row.difficulty
+      cachedKeys.add(row.keyword)
+    }
   }
 
   // 2. Identify misses

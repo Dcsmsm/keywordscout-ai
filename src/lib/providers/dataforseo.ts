@@ -125,13 +125,17 @@ export class DataForSEOProvider implements SearchProvider {
       { keywords, location_code: locationCode, language_code: language },
     ])
     const tasks = (data.tasks as Array<Record<string, unknown>>) ?? []
-    if (tasks[0]) console.log('[dataforseo] bulk_keyword_difficulty first task sample:', JSON.stringify(tasks[0]).slice(0, 500))
     const map: Record<string, number> = {}
     for (const task of tasks) {
-      for (const item of (task.result as Array<Record<string, unknown>> | null) ?? []) {
-        const kw = item['keyword'] as string | undefined
-        const diff = (item['keyword_difficulty'] ?? item['difficulty']) as number | undefined
-        if (kw && diff != null) map[kw] = diff
+      // bulk_keyword_difficulty: result[0].items[] (not result[] directly)
+      const resultArr = (task.result as Array<Record<string, unknown>> | null) ?? []
+      for (const resultItem of resultArr) {
+        const items = (resultItem['items'] as Array<Record<string, unknown>>) ?? []
+        for (const item of items) {
+          const kw = item['keyword'] as string | undefined
+          const diff = item['keyword_difficulty'] as number | undefined
+          if (kw && diff != null) map[kw] = diff
+        }
       }
     }
     return map

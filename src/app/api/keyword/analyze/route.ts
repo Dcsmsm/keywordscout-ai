@@ -20,6 +20,7 @@ import { enrichWithVolume } from '@/lib/providers/volume'
 import { enrichWithDifficulty } from '@/lib/providers/difficulty'
 import { enrichWithSerp } from '@/lib/providers/serp-cache'
 import { expandKeywordsPipeline } from '@/lib/keyword-expansion'
+import { scoreRelevance } from '@/lib/keyword-expansion/semantic-relevance'
 import { PLAN_LIMITS } from '@/types/analysis'
 
 export async function POST(request: NextRequest) {
@@ -115,7 +116,9 @@ export async function POST(request: NextRequest) {
       ),
     ])
 
-    const serpKeywords = [keyword, ...ideas.map((k) => k.keyword).filter((k) => k !== keyword)]
+    const serpKeywords = [keyword, ...ideas
+      .map((k) => k.keyword)
+      .filter((k) => k !== keyword && scoreRelevance(k, keyword) > 0)]
 
     // Run autocomplete mining + Claude keyword expansion in parallel
     const [expansion, claudeKeywords] = await Promise.all([
@@ -125,12 +128,13 @@ export async function POST(request: NextRequest) {
 
     // Merge: seed → SERP ideas → autocomplete mined → Claude-generated, deduplicated
     const minedKeywords = expansion.keywords.map((k) => k.keyword)
-    const allKeywordsSet = [keyword, ...serpKeywords.filter((k) => k !== keyword), ...minedKeywords, ...claudeKeywords]
+    const filteredClaudeKeywords = claudeKeywords.filter((k) => scoreRelevance(k, keyword) > 0)
+    const allKeywordsSet = [keyword, ...serpKeywords.filter((k) => k !== keyword), ...minedKeywords, ...filteredClaudeKeywords]
     const allKeywords = [...new Set(allKeywordsSet)].slice(0, maxSuggestions)
 
     // Build source maps for provenance tracking
     const autocompleteSourceMap = new Map(expansion.keywords.map((k) => [k.keyword, k]))
-    const claudeSet = new Set(claudeKeywords)
+    const claudeSet = new Set(filteredClaudeKeywords)
 
     // ── [A] Volume + competition — 1 bulk call, already paid ──────────────────
     const volumeMap = await enrichWithVolume(allKeywords, country, language)
