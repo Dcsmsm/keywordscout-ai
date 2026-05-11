@@ -210,17 +210,17 @@ export function KeywordResultsTable({ results }: { results: Result[] }) {
 
                     {/* Difficulty (invert: lower = better) */}
                     <td className="px-4 py-3">
-                      <ScoreCell value={r.difficulty_estimate} invert estimated={r.keyword_source !== 'seed'} />
+                      <ScoreCell value={r.difficulty_estimate} invert estimated={!r.has_real_difficulty} />
                     </td>
 
                     {/* SERP Weakness */}
                     <td className="px-4 py-3">
-                      <ScoreCell value={r.serp_weakness_score} estimated={r.keyword_source !== 'seed'} />
+                      <ScoreCell value={r.serp_weakness_score} estimated={!r.has_real_serp} />
                     </td>
 
                     {/* Opportunity */}
                     <td className="px-4 py-3">
-                      <ScoreCell value={r.opportunity_score} estimated={r.keyword_source !== 'seed'} />
+                      <ScoreCell value={r.opportunity_score} estimated={!r.has_real_difficulty} />
                     </td>
 
                     {/* Relevance */}

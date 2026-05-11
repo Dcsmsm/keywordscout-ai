@@ -3,14 +3,23 @@
  * Pure text heuristics — no external calls. Returns 0–1.
  */
 export function scoreRelevance(candidate: string, seed: string): number {
-  const seedTokens = seed.toLowerCase().split(/\s+/)
-  const candidateTokens = candidate.toLowerCase().split(/\s+/)
+  const seedLower = seed.toLowerCase()
+  const candidateLower = candidate.toLowerCase()
+  const seedTokens = seedLower.split(/\s+/)
+  const candidateTokens = candidateLower.split(/\s+/)
 
   if (!candidateTokens.length) return 0
 
-  // Exact seed containment
-  if (candidate.toLowerCase().includes(seed.toLowerCase())) {
-    // Bonus for exact match, scaled by how much extra content there is
+  // For short seeds (≤4 chars, likely acronyms like "PAC", "SEO") require whole-word match.
+  // Without this, "pac" would match "pacchetto", "pace", "pacchi" etc.
+  if (seed.length <= 4) {
+    const escaped = seedLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const wordBoundary = new RegExp(`\\b${escaped}\\b`, 'i')
+    if (!wordBoundary.test(candidateLower)) return 0
+  }
+
+  // Exact seed containment (whole-word already verified for short seeds above)
+  if (candidateLower.includes(seedLower)) {
     const extraTokens = candidateTokens.length - seedTokens.length
     return Math.max(0.7, 1 - extraTokens * 0.05)
   }

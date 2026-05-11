@@ -152,6 +152,8 @@ export interface Database {
           keyword_source: 'autocomplete' | 'autocomplete_modifier' | 'paa' | 'related' | 'claude' | 'seed' | null
           relevance_score: number | null
           source_modifier: string | null
+          has_real_difficulty: boolean
+          has_real_serp: boolean
           created_at: string
         }
         Insert: {
@@ -171,6 +173,8 @@ export interface Database {
           keyword_source?: 'autocomplete' | 'autocomplete_modifier' | 'paa' | 'related' | 'claude' | 'seed' | null
           relevance_score?: number | null
           source_modifier?: string | null
+          has_real_difficulty?: boolean
+          has_real_serp?: boolean
           created_at?: string
         }
         Update: {
@@ -188,6 +192,8 @@ export interface Database {
           keyword_source?: 'autocomplete' | 'autocomplete_modifier' | 'paa' | 'related' | 'claude' | 'seed' | null
           relevance_score?: number | null
           source_modifier?: string | null
+          has_real_difficulty?: boolean
+          has_real_serp?: boolean
         }
       }
       autocomplete_cache: {

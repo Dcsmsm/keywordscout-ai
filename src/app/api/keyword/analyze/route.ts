@@ -203,6 +203,8 @@ export async function POST(request: NextRequest) {
         keyword_source: source,
         relevance_score: kw === keyword ? 1 : (kwMeta?.relevanceScore ?? null),
         source_modifier: kwMeta?.modifier ?? null,
+        has_real_difficulty: difficultyMap[kw] != null || volumeMap[kw]?.competition != null,
+        has_real_serp: serpCacheMap.has(kw),
       }
     })
 

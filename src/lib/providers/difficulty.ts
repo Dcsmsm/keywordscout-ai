@@ -27,12 +27,14 @@ export async function enrichWithDifficulty(
   const cutoff = new Date(Date.now() - CACHE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
   // 1. Check cache
-  const { data: cached } = await (supabase.from('keyword_difficulty_cache' as any) as any)
+  const { data: cached, error: cacheError } = await (supabase.from('keyword_difficulty_cache' as any) as any)
     .select('keyword, difficulty')
     .in('keyword', keywords)
     .eq('country', cntry)
     .eq('language', lang)
     .gte('cached_at', cutoff)
+
+  if (cacheError) console.warn('[difficulty] cache read error (table may not exist yet):', cacheError.message)
 
   const result: Record<string, number> = {}
   const cachedKeys = new Set<string>()
@@ -44,14 +46,19 @@ export async function enrichWithDifficulty(
 
   // 2. Identify misses
   const misses = keywords.filter((k) => !cachedKeys.has(k))
+  console.log(`[difficulty] ${keywords.length} keywords — ${cachedKeys.size} cached, ${misses.length} to fetch from Labs`)
   if (!misses.length) return result
 
   // 3. Fetch misses from DataForSEO Labs in one bulk call
   const dfs = getDataForSEOClient()
-  if (!dfs) return result
+  if (!dfs) {
+    console.error('[difficulty] No DataForSEO client — DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD env vars not set')
+    return result
+  }
 
   try {
     const fresh = await dfs.getKeywordDifficulty(misses, cntry, lang)
+    console.log(`[difficulty] Labs returned difficulty for ${Object.keys(fresh).length} / ${misses.length} keywords`)
 
     for (const [kw, diff] of Object.entries(fresh)) {
       result[kw] = diff
@@ -68,8 +75,8 @@ export async function enrichWithDifficulty(
 
     await (supabase.from('keyword_difficulty_cache' as any) as any)
       .upsert(rows, { onConflict: 'keyword,country,language' })
-  } catch {
-    // Non-critical — analysis continues with competition-derived or estimated difficulty
+  } catch (err) {
+    console.error('[difficulty] Labs call failed:', err)
   }
 
   return result
